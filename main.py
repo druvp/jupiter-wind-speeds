@@ -4,6 +4,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import math
 from math import sin, cos, sqrt, pi
+import IPython
+import warnings
+from time import time
 
 #COORDS
 
@@ -31,6 +34,44 @@ def coords_convert(img, x, y):
         lon += 360
     return [lon, lat]
 
+def lon_justify(lon): 
+    '''
+    This function will justify the longitude system between 0 and 360     
+    '''
+
+    if lon < 0: lon += 360 
+    if lon > 360: lon -=360
+
+    return lon
+
+def lon_interval(lon,lon_left,lon_right): 
+    '''
+    This function will compute if a longitude falls in between a longitude range     
+    '''
+
+    # check if lon_left is larger than the lon_right 
+    # Example: lon_left 250, lon_right 100 lon_interval(170,250,100)
+
+    # Round to two decimal points 
+    lon     = np.around(lon,2)
+    lon_left = np.around(lon_left,2) 
+    lon_right = np.around(lon_right,2) 
+
+    if lon_left > lon_right: 
+        if (lon <= lon_left) and (lon>=lon_right):
+            return True, False
+        else: 
+            return False 
+
+    # Example: lon_left 10, lon_right 300 lon_interval(10,300,320) 
+
+    if lon_left < lon_right: 
+        if (lon <= lon_left) or (lon>=lon_right):
+            return True, True 
+        else: 
+            return False 
+
+            
 def inverse_coords(img, lon, lat):
     """
     Convert given longitude and latitude to (x,y) in pixels.
@@ -38,34 +79,38 @@ def inverse_coords(img, lon, lat):
     IMPT: x goes from 0 (1st pixel) to 1600 (1601th pixel), y goes from 0 (1st pixel) to 2800 (2801th pixel). (0,0) at lower left corner of img.
 
     """
-    hdulist = fits.open(img) #open image
 
+    # Make sure that longitude range is within -180 to 180 
+    lon = lon_justify(lon)
+
+
+    hdulist = fits.open(img) #open image
     #header info
     lon_step, lat_step = hdulist[0].header['LON_STEP'], hdulist[0].header['LAT_STEP']
-    lon_left, lon_right = round(hdulist[0].header['LON_LEFT'], 2), round(hdulist[0].header['LON_RIGH'], 2)
+    #lon_left, lon_right = round(hdulist[0].header['LON_LEFT'], 2), round(hdulist[0].header['LON_RIGH'], 2)
+    lon_left, lon_right = hdulist[0].header['LON_LEFT'], hdulist[0].header['LON_RIGH']
     lat_bot, lat_top = hdulist[0].header['LAT_BOT'], hdulist[0].header['LAT_TOP']
-    
-    #account for the fact that the user may be inputting a longitude outside the range of the image
-    if lon > lon_left:
-        while lon > lon_left:
-            lon = round(lon - 360, 2)
-        if lon < lon_right:
-            return 'Error; inputted longitude not in longitude range of ' + img 
-    elif lon < lon_right:
-        while lon < lon_right:
-            lon = round(lon + 360, 2)
-        if lon > lon_left:
-            return 'Error; inputted longitude not in longitude range of ' + img
-    
-    #get values
-    img_lons = np.linspace(lon_left, lon_right + lon_step, 1601, endpoint=False)
+
+    # Check if the longitude falls within the region 
+    if not lon_interval(lon,lon_justify(lon_left),lon_justify(lon_right)):
+        print(f'Longitude { lon}, LoLe {lon_justify(lon_left)}, LoRi {lon_justify(lon_right)} ')
+        warnings.warn('Longitude falls outside of the image range')
+        return [np.nan, np.nan]
+
+    # shift the values by 360 degrees if longitude right 
+    if lon_right <= 0: 
+        lon += 360 
+        lon_left += 360 
+        lon_right += 360 
+    img_lons = np.arange(lon_left,lon_right+lon_step, lon_step)
     img_lons_dist = abs(img_lons - lon)
     x = np.argmin(img_lons_dist)
 
-    img_lats = np.linspace(lat_bot, lat_top + lat_step, 2801, endpoint=False)
+    #img_lats = np.linspace(lat_bot, lat_top + lat_step, 2801, endpoint=False)
+    img_lats = np.arange(lat_bot,lat_top + lat_step, lat_step)
     img_lats_dist = abs(img_lats - lat)
     y = np.argmin(img_lats_dist)
-   
+
     return [x, y]
 
 #OVERLAP 
@@ -233,6 +278,8 @@ def overlap_slice(slice1, slice2):
     #print(overlap)
     return overlap
 
+
+
 def overlap_all(y, v):
     """
     Determine all image pairs that have overlapping longitude ranges at a certain latitude (pix) after 
@@ -314,7 +361,7 @@ def advection(img1, img2, y, v):
     img1 and img2 are filenames (strings), y is in pixels, and v is in m/s.
 
     """
-    R_eq, R_po = 7.15e+7, 6.69e+7 #Jovian equatorial and polar radii in meters
+    R_eq, R_po = 71492e3, 66854e+3 #Jovian equatorial and polar radii in meters
 
     lat = coords_convert(img1, 1000, y)[1] #convert y to latitude (img, x value don't matter for trim)
     lat *= (pi / 180) #convert to radians
@@ -330,7 +377,9 @@ def advection(img1, img2, y, v):
     hdulist = fits.open(img1) #open img1
     lon_left, lon_right, lon_step = hdulist[0].header['LON_LEFT'], hdulist[0].header['LON_RIGH'], hdulist[0].header['LON_STEP']
 
-    lon_range_init = np.linspace(round(lon_left, 2), round(lon_right, 2) + lon_step, 1601, endpoint=False)
+    #lon_range_init = np.linspace(round(lon_left, 2), round(lon_right, 2) + lon_step, 1601, endpoint=False)
+    lon_range_init = np.arange(lon_left, lon_right + lon_step, lon_step) #get other slice (DEGREES LON)
+
     lon_range_shifted = lon_range_init - delta_lon #creating array of longitudes, shifting by delta_lon
 
     return [lon_range_shifted, delta_lon]
@@ -349,70 +398,48 @@ def correlation(y, v, img1, img2):
     for i in overlapping_images: #loop thru overlapping image pairs at given lat and v. 
         img1, img2 = i[0], i[1]
     print(img1, img2)'''
-    
+
     hdulist1, hdulist2 = fits.open(img1), fits.open(img2) #open images
     lat = coords_convert(img1, 0, y)[1] #get latitude in degrees from y (image and x value don't matter)
-
+    # Advect the slice according to the velocity 
     lon_left_2, lon_right_2, lon_step = hdulist2[0].header['LON_LEFT'], hdulist2[0].header['LON_RIGH'], hdulist2[0].header['LON_STEP']
-    slice1_shifted = advection(img1, img2, y, v)[0] #get SHIFTED SLICE of IMG1 SHIFTING TO IMG2 (DEGREES LON)
-    slice2_shifted = np.linspace(round(lon_left_2, 2), round(lon_right_2, 2) + lon_step, 1601, endpoint=False) #get other slice (DEGREES LON)
-                #note slice2_shifted is NOT an advected array; the naming is simply to match that of slice1_shifted.
-    delta_lon = advection(img1, img2, y, v)[1] #get shift in longitude for img1 in DEGREES
-    
-    #print('slice1_shifted is', slice1_shifted)
-    #print('slice2_shifted is', slice2_shifted)
+    slice1_shifted, delta_lon = advection(img1, img2, y, v) #get SHIFTED SLICE of IMG1 SHIFTING TO IMG2 (DEGREES LON)
+    #slice2_shifted = np.linspace(round(lon_left_2, 2), round(lon_right_2, 2) + lon_step, 1601, endpoint=False) #get other slice (DEGREES LON)
+    slice2_shifted = np.arange(lon_left_2, lon_right_2 + lon_step, lon_step) #get other slice (DEGREES LON)
+    #note slice2_shifted is NOT an advected array; the naming is simply to match that of slice1_shifted.
+        
+    # Obtain the overlap region between the two slices 
 
-    overlap = overlap_slice(slice1_shifted, slice2_shifted) #get overlapping longitude boundaries (array)
+    # If delta_lon is negative, the slice is advected outside of the overlap region  
+    if delta_lon < 0: 
+        overlap = overlap_slice(slice1_shifted +  delta_lon, slice2_shifted)
+    else: 
+        overlap = overlap_slice(slice1_shifted - delta_lon, slice2_shifted) #get overlapping longitude boundaries (array)
+
     if not overlap:
         return 0 #end the function body if no overlap is detected after advection
+
+    # Faster method for computing overlapping slice 
+    N = np.around(np.arange(np.around(overlap[0]/lon_step)*lon_step,overlap[1],lon_step),2)
+    slice1_shifted_pixels = np.arange(inverse_coords(img1, N[0] +  delta_lon, lat)[0], inverse_coords(img1, N[-1] +  delta_lon, lat)[0] + 1 ,1,)
+    slice2_shifted_pixels = np.arange(inverse_coords(img2, N[0] , lat)[0], inverse_coords(img2, N[-1] , lat)[0] + 1, 1)
+
+
+
+
+    # #convert overlap range from DEGREES lon to lon PIXELS. 
+    # slice1_shifted_pixels, slice2_shifted_pixels = [], []
+    # # Make sure that overlap falls onto pixel values 
+
+    # #N = np.arange(overlap[0],overlap[1],lon_step)
+    # N = np.around(np.arange(np.around(overlap[0]/lon_step)*lon_step,overlap[1],lon_step),2)
+
+
+    # for i in N:
+    #     slice1_shifted_pixels.append(inverse_coords(img1, i +  delta_lon, lat)[0] )
+    #     slice2_shifted_pixels.append(inverse_coords(img2, i, lat)[0])
+
     
-    #print('overlap is' , overlap[0], overlap[1])
-
-    #convert overlap range from DEGREES lon to lon PIXELS. 
-    slice1_shifted_pixels, slice2_shifted_pixels = [], []
-             #red_overlap_1, red_overlap_2 = round(round(overlap[0] / 0.05) * 0.05, 2), round(round(overlap[1] / 0.05) * 0.05, 2) 
-    N = np.linspace(overlap[0], overlap[1] + lon_step, int((overlap[1] - overlap[0]) / lon_step) + 1, endpoint=False)
-        #this produces an overlap array with step length ~-0.05. 
-    for i in N:
-        #print(i)
-        reverse_advect_i = round(i + delta_lon, 2)
-        j = inverse_coords(img1, reverse_advect_i, lat)[0]
-        if j in slice1_shifted_pixels:
-            continue
-        slice1_shifted_pixels.append(j)
-    #print('slice1 done')
-    for i in N:
-        #print(i)
-        j = inverse_coords(img2, i, lat)[0]
-        if j in slice2_shifted_pixels:
-            continue
-        slice2_shifted_pixels.append(j)
-    #print('slice2 done')
-    print(slice1_shifted_pixels, slice2_shifted_pixels)
-
-    '''slice1_shifted_pixels = []
-    ind1_0 =  np.where(slice1_shifted <= overlap[0])[0][0]
-    ind1_1 =  np.where(slice1_shifted <= overlap[1])[0][0]
-
-    ind2_0 = np.where(slice2_shifted >= overlap[0])[0][-1]
-    ind2_1 = np.where(slice2_shifted >= overlap[1])[0][-1]
-
-    print(ind1_0, ind1_1, ind2_0, ind2_1)
-    j0 = inverse_coords(img1, overlap[0], lat)[0] #gets first longitude pixel of img1 in the overlap
-    j = inverse_coords(img1, overlap[1], lat)[0] #gets last longitude pixel of img1 in the overlap
-    slice1_shifted_pixels.append([0, y]) #append first [lon, lat] of img1's overlap
-    slice1_shifted_pixels.append([j - j0, y]) #append last [lon, lat] of img1's overlap
-    #instead of appending j0 and j, we append 0 and j - j0, zeroing the pixel range. 
-    for i in overlap:
-        j = inverse_coords(img1, i, lat)
-        slice1_shifted_pixels.append(j)
-
-    #repeat for the other non-shifted image, but without zeroing the pixel range.
-    slice2_shifted_pixels = []
-    for k in overlap:
-        j = inverse_coords(img2, k, lat)
-        slice2_shifted_pixels.append(j)'''
-
     #sanity check
     assert len(slice1_shifted_pixels) == len(slice2_shifted_pixels), 'Error - overlap pixel ranges different lengths.'
     
@@ -426,39 +453,101 @@ def correlation(y, v, img1, img2):
     sum1, sum2 = sum(slice1_brightness), sum(slice2_brightness)
     slice1_brightness_avg, slice2_brightness_avg = sum1 / n1_brightness, sum2 / n2_brightness #compute average brightness value of each array
 
-    product_sum = 0
-    for k in range(0, n1_brightness):
-        product_sum += (slice1_brightness[k] * slice2_brightness[k])
-    product_avg = product_sum / n1_brightness #compute average of products of arrays
+    product_avg = np.dot(slice1_brightness,slice2_brightness)/n1_brightness
 
-    square_sum_1, square_sum_2 = 0, 0
-    for k in range(0, n1_brightness):
-        square_sum_1 += ((slice1_brightness[k]) ** 2)
-        square_sum_2 += ((slice2_brightness[k]) ** 2)
-    slice1_brightness_sq_avg, slice2_brightness_sq_avg = square_sum_1 / n1_brightness, square_sum_2 / n2_brightness #compute average of squares
-    
+    slice1_brightness_sq_avg, slice2_brightness_sq_avg = np.sum(slice1_brightness**2)/n1_brightness, np.sum(slice2_brightness**2)/n2_brightness, 
+
+
     corr_numerator = product_avg - (n1_brightness * slice1_brightness_avg * slice2_brightness_avg)
     corr_denominator_1 = slice1_brightness_sq_avg - (n1_brightness * ((slice1_brightness_avg) ** 2))
     corr_denominator_2 = slice2_brightness_sq_avg - (n2_brightness * ((slice2_brightness_avg) ** 2))
     corr = corr_numerator / ((corr_denominator_1 * corr_denominator_2) ** 0.5) #calculate correlation
 
+
     return corr #return final correlation
 
+def readZWP(plotting=False): 
+    '''
+    Read in the zonal wind profile from Josh's 2019 paper 
 
-def v_max(y):
+    
+    ------------
+    Return:
+    latitude Planetographic  (deg) 
+    E-W Wind speed (m/s) 
+    '''
+
+
+
+    path2wp = 'ZWP_j2016_PJ03.txt'
+
+    A = np.loadtxt(path2wp) 
+    if plotting: 
+        fig, axs = plt.subplots(1, 1,figsize=(8,4))
+        axs.plot(A[:,1],A[:,0],label='JT - ZWP')
+        axs.set_ylabel('Latitude (deg)')
+        axs.set_xlabel('Velocity (m/s)')
+        axs.set_ylim([-60,60])
+
+    return A[:,0],A[:,1] 
+
+def v_max(y,plotting=False, vstep = 51):
     """
     Return velocity with maximum correlation in m/s at a particular latitude y (pix) for two images. Also displays a graph.
 
     """
-    vel_array = np.linspace(-200, 200, 51)
+    # CM Debugging 
+    #path2data = '/Users/chris/GDrive-UCB/Berkeley/Research/Jupiter/ZonalWind/Images/'
+    # image1 = '190626_631_1300_reg_corr.fits' 
+    # image2 = '190626_631_1340_reg_corr.fits'
+    path2data = './'
+    image1 = 'corrected_12.fits'
+    image2 = 'corrected_15.fits'
+    vel_array = np.linspace(-200, 200, vstep)
     correlations = []
     for a in vel_array:
         print('a is', a)
-        corr = correlation(y, a, 'corrected_1.fits', 'corrected_2.fits')
-        assert corr <= -1, 'Correlation is greater than -1.'
+        corr = correlation(y, a, path2data+image1, path2data+image2)
         correlations.append(corr)
-    plt.plot(vel_array, correlations)
-    plt.show()
+    if plotting: 
+        plt.plot(vel_array, correlations)
+        plt.ylim([-1,min(correlations)])
+        plt.show()
     return vel_array[np.argmax(correlations)]
 
-#print(v_max(1400)) 
+
+
+# CM Debugging 
+#path2data = '/Users/chris/GDrive-UCB/Berkeley/Research/Jupiter/ZonalWind/Images/'
+#image1 = '190626_631_1300_reg_corr.fits' 
+#hdulist = fits.open(path2data + image1) 
+hdulist = fits.open('corrected_12.fits')
+lat_bot, lat_top, lat_step = hdulist[0].header['LAT_BOT'], hdulist[0].header['LAT_TOP'], hdulist[0].header['LAT_STEP']
+latitude = np.linspace(lat_bot,lat_top,int((lat_top-lat_bot)/lat_step) + 1)
+
+lat = []
+v_corr = [] 
+for y in range(1400,1500,25):
+    print(f'Latitude {latitude[y]}')
+    lat.append(y)    
+    v_corr.append(v_max(y))
+
+lat_zwp, zwp = readZWP() 
+fig, axs = plt.subplots(1, 1,figsize=(8,4))
+axs.plot(zwp,lat_zwp,label='JT - ZWP')
+axs.plot(v_corr,latitude[lat],label='JT - ZWP')
+axs.set_ylabel('Latitude (deg)')
+axs.set_xlabel('Velocity (m/s)')
+axs.set_ylim([-60,60])
+
+  
+
+
+
+
+
+
+
+
+
+    
