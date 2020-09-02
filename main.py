@@ -502,7 +502,7 @@ def v_max(y,plotting=False, vstep = 51):
         plt.plot(vel_array, correlations)
         #plt.ylim([1,min(correlations)])
         plt.ylabel('correlation')
-        plt.xlabel('Velocity')%
+        plt.xlabel('Velocity')
         plt.show()
     return vel_array[np.argmax(correlations)]
 
