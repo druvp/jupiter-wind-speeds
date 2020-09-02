@@ -486,10 +486,11 @@ def v_max(y,plotting=False, vstep = 51):
     path2data = '/Users/chris/GDrive-UCB/Berkeley/Research/Jupiter/ZonalWind/Images/'
     #image1 = '190626_631_1300_reg_trim.fits' 
     #image2 = '190626_631_1340_reg_trim.fits'
+    path2data = './'
     image1 = '190626_631_1300_reg_corr.fits' 
     #image2 = '190626_631_1340_reg_corr.fits'
     image2 = '190626_631_2313_reg_corr.fits'
-    # path2data = './'
+
     # image1 = 'corrected_12.fits'
     # image2 = 'corrected_15.fits'
     vel_array = np.linspace(-200, 200, vstep)
@@ -501,7 +502,7 @@ def v_max(y,plotting=False, vstep = 51):
         plt.plot(vel_array, correlations)
         #plt.ylim([1,min(correlations)])
         plt.ylabel('correlation')
-        plt.xlabel('Velocity')
+        plt.xlabel('Velocity')%
         plt.show()
     return vel_array[np.argmax(correlations)]
 
@@ -509,6 +510,8 @@ def v_max(y,plotting=False, vstep = 51):
 
 # CM Debugging 
 path2data = '/Users/chris/GDrive-UCB/Berkeley/Research/Jupiter/ZonalWind/Images/'
+path2data = './'
+
 image1 = '190626_631_1300_reg_corr.fits' 
 hdulist = fits.open(path2data + image1) 
 # hdulist = fits.open('corrected_12.fits')
