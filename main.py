@@ -398,16 +398,14 @@ def correlation(y, v, img1, img2):
     for i in overlapping_images: #loop thru overlapping image pairs at given lat and v. 
         img1, img2 = i[0], i[1]
     print(img1, img2)'''
-
     hdulist1, hdulist2 = fits.open(img1), fits.open(img2) #open images
     lat = coords_convert(img1, 0, y)[1] #get latitude in degrees from y (image and x value don't matter)
     # Advect the slice according to the velocity 
     lon_left_2, lon_right_2, lon_step = hdulist2[0].header['LON_LEFT'], hdulist2[0].header['LON_RIGH'], hdulist2[0].header['LON_STEP']
     slice1_shifted, delta_lon = advection(img1, img2, y, v) #get SHIFTED SLICE of IMG1 SHIFTING TO IMG2 (DEGREES LON)
     #slice2_shifted = np.linspace(round(lon_left_2, 2), round(lon_right_2, 2) + lon_step, 1601, endpoint=False) #get other slice (DEGREES LON)
-    slice2_shifted = np.arange(lon_left_2, lon_right_2 + lon_step, lon_step) #get other slice (DEGREES LON)
+    slice2_shifted = np.arange(lon_left_2, lon_right_2, lon_step) #get other slice (DEGREES LON)
     #note slice2_shifted is NOT an advected array; the naming is simply to match that of slice1_shifted.
-        
     # Obtain the overlap region between the two slices 
 
     # If delta_lon is negative, the slice is advected outside of the overlap region  
@@ -421,25 +419,10 @@ def correlation(y, v, img1, img2):
 
     # Faster method for computing overlapping slice 
     N = np.around(np.arange(np.around(overlap[0]/lon_step)*lon_step,overlap[1],lon_step),2)
-    slice1_shifted_pixels = np.arange(inverse_coords(img1, N[0] +  delta_lon, lat)[0], inverse_coords(img1, N[-1] +  delta_lon, lat)[0] + 1 ,1,)
-    slice2_shifted_pixels = np.arange(inverse_coords(img2, N[0] , lat)[0], inverse_coords(img2, N[-1] , lat)[0] + 1, 1)
+    slice1_shifted_pixels = np.arange(inverse_coords(img1, N[0] +  delta_lon, lat)[0], inverse_coords(img1, N[-1] +  delta_lon, lat)[0]  ,1,)
+    slice2_shifted_pixels = np.arange(inverse_coords(img2, N[0] , lat)[0], inverse_coords(img2, N[-1] , lat)[0] , 1)
 
 
-
-
-    # #convert overlap range from DEGREES lon to lon PIXELS. 
-    # slice1_shifted_pixels, slice2_shifted_pixels = [], []
-    # # Make sure that overlap falls onto pixel values 
-
-    # #N = np.arange(overlap[0],overlap[1],lon_step)
-    # N = np.around(np.arange(np.around(overlap[0]/lon_step)*lon_step,overlap[1],lon_step),2)
-
-
-    # for i in N:
-    #     slice1_shifted_pixels.append(inverse_coords(img1, i +  delta_lon, lat)[0] )
-    #     slice2_shifted_pixels.append(inverse_coords(img2, i, lat)[0])
-
-    
     #sanity check
     assert len(slice1_shifted_pixels) == len(slice2_shifted_pixels), 'Error - overlap pixel ranges different lengths.'
     
@@ -450,20 +433,24 @@ def correlation(y, v, img1, img2):
     n1_brightness, n2_brightness = len(slice1_brightness), len(slice2_brightness)
     assert n1_brightness == n2_brightness, 'Error - brightness slices different lengths.'
 
-    sum1, sum2 = sum(slice1_brightness), sum(slice2_brightness)
-    slice1_brightness_avg, slice2_brightness_avg = sum1 / n1_brightness, sum2 / n2_brightness #compute average brightness value of each array
 
-    product_avg = np.dot(slice1_brightness,slice2_brightness)/n1_brightness
+    sum1, sum2 = np.sum(slice1_brightness), np.sum(slice2_brightness)
+    slice1_brightness_avg, slice2_brightness_avg = sum1, sum2  #compute average brightness value of each array
 
-    slice1_brightness_sq_avg, slice2_brightness_sq_avg = np.sum(slice1_brightness**2)/n1_brightness, np.sum(slice2_brightness**2)/n2_brightness, 
+    product_avg = np.dot(slice1_brightness,slice2_brightness)
+
+    slice1_brightness_sq_avg, slice2_brightness_sq_avg = np.sum(slice1_brightness**2), np.sum(slice2_brightness**2), 
 
 
-    corr_numerator = product_avg - (n1_brightness * slice1_brightness_avg * slice2_brightness_avg)
-    corr_denominator_1 = slice1_brightness_sq_avg - (n1_brightness * ((slice1_brightness_avg) ** 2))
-    corr_denominator_2 = slice2_brightness_sq_avg - (n2_brightness * ((slice2_brightness_avg) ** 2))
+    # corr_numerator = product_avg - (n1_brightness * slice1_brightness_avg * slice2_brightness_avg)
+    # corr_denominator_1 = slice1_brightness_sq_avg - (n1_brightness * ((slice1_brightness_avg) ** 2))
+    # corr_denominator_2 = slice2_brightness_sq_avg - (n2_brightness * ((slice2_brightness_avg) ** 2))
+    # corr = corr_numerator / ((corr_denominator_1 * corr_denominator_2) ** 0.5) #calculate correlation
+
+    corr_numerator = product_avg - (slice1_brightness_avg * slice2_brightness_avg/n1_brightness)
+    corr_denominator_1 = slice1_brightness_sq_avg - (((slice1_brightness_avg) ** 2)/n1_brightness)
+    corr_denominator_2 = slice2_brightness_sq_avg - (((slice2_brightness_avg) ** 2)/n1_brightness)
     corr = corr_numerator / ((corr_denominator_1 * corr_denominator_2) ** 0.5) #calculate correlation
-
-
     return corr #return final correlation
 
 def readZWP(plotting=False): 
@@ -490,48 +477,53 @@ def readZWP(plotting=False):
         axs.set_ylim([-60,60])
 
     return A[:,0],A[:,1] 
-
 def v_max(y,plotting=False, vstep = 51):
     """
     Return velocity with maximum correlation in m/s at a particular latitude y (pix) for two images. Also displays a graph.
 
     """
     # CM Debugging 
-    #path2data = '/Users/chris/GDrive-UCB/Berkeley/Research/Jupiter/ZonalWind/Images/'
-    # image1 = '190626_631_1300_reg_corr.fits' 
-    # image2 = '190626_631_1340_reg_corr.fits'
-    path2data = './'
-    image1 = 'corrected_12.fits'
-    image2 = 'corrected_15.fits'
+    path2data = '/Users/chris/GDrive-UCB/Berkeley/Research/Jupiter/ZonalWind/Images/'
+    #image1 = '190626_631_1300_reg_trim.fits' 
+    #image2 = '190626_631_1340_reg_trim.fits'
+    image1 = '190626_631_1300_reg_corr.fits' 
+    #image2 = '190626_631_1340_reg_corr.fits'
+    image2 = '190626_631_2313_reg_corr.fits'
+    # path2data = './'
+    # image1 = 'corrected_12.fits'
+    # image2 = 'corrected_15.fits'
     vel_array = np.linspace(-200, 200, vstep)
     correlations = []
     for a in vel_array:
-        print('a is', a)
         corr = correlation(y, a, path2data+image1, path2data+image2)
         correlations.append(corr)
     if plotting: 
         plt.plot(vel_array, correlations)
-        plt.ylim([-1,min(correlations)])
+        #plt.ylim([1,min(correlations)])
+        plt.ylabel('correlation')
+        plt.xlabel('Velocity')
         plt.show()
     return vel_array[np.argmax(correlations)]
 
 
 
 # CM Debugging 
-#path2data = '/Users/chris/GDrive-UCB/Berkeley/Research/Jupiter/ZonalWind/Images/'
-#image1 = '190626_631_1300_reg_corr.fits' 
-#hdulist = fits.open(path2data + image1) 
-hdulist = fits.open('corrected_12.fits')
+path2data = '/Users/chris/GDrive-UCB/Berkeley/Research/Jupiter/ZonalWind/Images/'
+image1 = '190626_631_1300_reg_corr.fits' 
+hdulist = fits.open(path2data + image1) 
+# hdulist = fits.open('corrected_12.fits')
 lat_bot, lat_top, lat_step = hdulist[0].header['LAT_BOT'], hdulist[0].header['LAT_TOP'], hdulist[0].header['LAT_STEP']
 latitude = np.linspace(lat_bot,lat_top,int((lat_top-lat_bot)/lat_step) + 1)
 
 lat = []
 v_corr = [] 
-for y in range(1400,1500,25):
-    print(f'Latitude {latitude[y]}')
+plt.figure()
+for y in range(1639,1739,10):
+    v_corr.append(v_max(y,plotting=True))
+    print(f'Latitude {latitude[y]:2.2f}',v_corr[-1])
     lat.append(y)    
-    v_corr.append(v_max(y))
 
+#v_corr[np.where(np.array(v_corr)<-199.9)  ] = np.nan
 lat_zwp, zwp = readZWP() 
 fig, axs = plt.subplots(1, 1,figsize=(8,4))
 axs.plot(zwp,lat_zwp,label='JT - ZWP')
@@ -539,7 +531,7 @@ axs.plot(v_corr,latitude[lat],label='JT - ZWP')
 axs.set_ylabel('Latitude (deg)')
 axs.set_xlabel('Velocity (m/s)')
 axs.set_ylim([-60,60])
-
+plt.show()
   
 
 
