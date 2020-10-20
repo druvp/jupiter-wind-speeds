@@ -422,7 +422,6 @@ def correlation_image_pair(y, v, img1, img2):
     N = (np.arange((overlap[0]/lon_step + 1)*lon_step, (overlap[-1]/lon_step - 1)*lon_step,lon_step))
 
     #get corresponding brightness values from pixel overlap range. data array is size 2801 x 1601; each value corresponds to a pixel.
-
     slice1 = hdulist1[0].data[y, :]
     slice2 = hdulist2[0].data[y, :]
 
@@ -434,14 +433,13 @@ def correlation_image_pair(y, v, img1, img2):
     slice2 = slice2[idy]
     slice2_lon = slice2_lon[idy]
 
-    # Interpolate onto overlap grid 
-
-    # Interpolate all values after wrap 
+    # Interpolation requires continous arrays, avoid wrap 360 to 0 
     if np.any(slice1_lon<0):
         slice1_lon += 360 
     if np.any(slice2_lon<0):
         slice2_lon += 360 
 
+    # Interpolate the slices onto the overlap grid 
     slice1_brightness = np.flip(np.interp(np.flip(N), np.flip(slice1_lon), np.flip(slice1)))
     slice2_brightness = np.flip(np.interp(np.flip(N), np.flip(slice2_lon), np.flip(slice2)))
         
@@ -503,15 +501,6 @@ def correlation(y, v):
         slice2_shifted = np.arange(lon_justify(lon_left_2), lon_justify(lon_right_2), lon_step) #get other slice (DEGREES LON)
         #note slice2_shifted is NOT an advected array; the naming is simply to match that of slice1_shifted.
         # Obtain the overlap region between the two slices 
-
-
-        print(v,delta_lon)
-        # If delta_lon is negative, the slice is advected outside of the overlap region  
-        # if delta_lon < 0: 
-        #     overlap = overlap_slice(slice1_shifted +  delta_lon, slice2_shifted)
-        # else: 
-        #     overlap = overlap_slice(slice1_shifted - delta_lon, slice2_shifted) #get overlapping longitude boundaries (array)
-
         overlap = overlap_slice(slice1_shifted, slice2_shifted)
 
         # if not overlap:
@@ -524,35 +513,23 @@ def correlation(y, v):
         slice1_shifted_pixels = np.arange(inverse_coords(img1, N[0] +  delta_lon, lat)[0], inverse_coords(img1, N[-1] +  delta_lon, lat)[0]  ,1,)
         slice2_shifted_pixels = np.arange(inverse_coords(img2, N[0] , lat)[0], inverse_coords(img2, N[-1] , lat)[0] , 1)
 
-        # Debug 
-        '''
-        img2 = 'corrected_2.fits'  
-        lat = -20 
-        overlap = [302.80720387703735, 246.40000999998182]
-        lon_step = -0.05 
-        '''
-
         #sanity check
-        assert len(slice1_shifted_pixels) == len(slice2_shifted_pixels), 'Error - overlap pixel ranges different lengths.'
-        
+        if len(slice1_shifted_pixels) != len(slice2_shifted_pixels):
+            print('Error - overlap pixel ranges different lengths.')        
+            return np.nan
+    
         #get corresponding brightness values from pixel overlap range. data array is size 2801 x 1601; each value corresponds to a pixel.
         slice1_brightness = hdulist1[0].data[y, slice1_shifted_pixels[0]:slice1_shifted_pixels[len(slice1_shifted_pixels) - 1]]
         slice2_brightness = hdulist2[0].data[y, slice2_shifted_pixels[0]:slice2_shifted_pixels[len(slice2_shifted_pixels) - 1]]
 
 
-        # Plot the slices 
- 
-        # plt.plot(slice1_brightness) 
-        # plt.plot(slice2_brightness,label=f'v {v}')
-        # plt.legend() 
-
         # Nan filter for debugging
-        # idx = slice1_brightness==slice1_brightness
-        # slice1_brightness = slice1_brightness[idx]
-        # slice2_brightness = slice2_brightness[idx]
-        # idy = slice2_brightness==slice2_brightness
-        # slice1_brightness = slice1_brightness[idy]
-        # slice2_brightness = slice2_brightness[idy]
+        idx = slice1_brightness==slice1_brightness
+        slice1_brightness = slice1_brightness[idx]
+        slice2_brightness = slice2_brightness[idx]
+        idy = slice2_brightness==slice2_brightness
+        slice1_brightness = slice1_brightness[idy]
+        slice2_brightness = slice2_brightness[idy]
 
 
 
@@ -566,12 +543,6 @@ def correlation(y, v):
         product_avg = np.dot(slice1_brightness,slice2_brightness)
 
         slice1_brightness_sq_avg, slice2_brightness_sq_avg = np.sum(slice1_brightness**2), np.sum(slice2_brightness**2), 
-
-
-        # corr_numerator = product_avg - (n1_brightness * slice1_brightness_avg * slice2_brightness_avg)
-        # corr_denominator_1 = slice1_brightness_sq_avg - (n1_brightness * ((slice1_brightness_avg) ** 2))
-        # corr_denominator_2 = slice2_brightness_sq_avg - (n2_brightness * ((slice2_brightness_avg) ** 2))
-        # corr = corr_numerator / ((corr_denominator_1 * corr_denominator_2) ** 0.5) #calculate correlation
 
         corr_numerator = product_avg - (slice1_brightness_avg * slice2_brightness_avg/n1_brightness)
         corr_denominator_1 = slice1_brightness_sq_avg - (((slice1_brightness_avg) ** 2)/n1_brightness)
@@ -595,8 +566,6 @@ def readZWP(plotting=False):
     E-W Wind speed (m/s) 
     '''
 
-
-
     path2wp = 'ZWP_j2016_PJ03.txt'
 
     A = np.loadtxt(path2wp) 
@@ -614,16 +583,14 @@ def v_max(y,path2data=None,plotting=True, vstep = 51):
     Return velocity with maximum correlation in m/s at a particular latitude y (pix) for two images. Also displays a graph.
 
     """
-    # CM Debugging
+    # Set up path environment 
     if path2data is None:  
         path2data = './'
 
     # Obtain image pairs at velocity 0 only 
     im_pairs = overlap_all(y,0, path2data = path2data)
 
-    
-
-
+    # Intitialize the arrays to be saved in 
     vel_array = np.linspace(-500, 500, vstep)
     correlations = np.zeros((len(im_pairs),vstep))
 
@@ -655,7 +622,6 @@ images = glob.glob(path2data+'*.fits')
 image1 = images[0]
 
 hdulist = fits.open(image1) 
-# hdulist = fits.open('corrected_12.fits')
 lat_bot, lat_top, lat_step = hdulist[0].header['LAT_BOT'], hdulist[0].header['LAT_TOP'], hdulist[0].header['LAT_STEP']
 latitude = np.linspace(lat_bot,lat_top,int((lat_top-lat_bot)/lat_step) + 1)
 
@@ -663,7 +629,7 @@ latitude = np.linspace(lat_bot,lat_top,int((lat_top-lat_bot)/lat_step) + 1)
 lat = []
 v_corr = [] 
 for y in range(1600,2000,10):
-    v = v_max(y,plotting=False)
+    v = v_max(y,path2data=path2data)
     v_corr.append(v)
 
     print(f'Latitude {latitude[y]:2.2f} Velocity',v_corr[-1])
